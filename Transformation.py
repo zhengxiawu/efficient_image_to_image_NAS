@@ -17,30 +17,32 @@ def weights_init(model):
             m.weight.data.normal_(1.0, 0.02)
             m.bias.data.fill_(0)
     return model
-def add_regular_block(block_name,position,basenet):
+def add_regular_block(block_name,basenet):
     assert hasattr(basenet,block_name), "Must contain the block"
     transormation_net = copy.deepcopy(basenet)
     config = getattr(basenet,block_name+'_config')
     config.block_num = 1
     insert_block = get_Regular_block(config)
     basenet_block = getattr(basenet,block_name)
-    basenet_block.insert(position,insert_block[0])
+    basenet_block.append(insert_block[0])
+    #basenet_block.insert(position,insert_block[0])
     transormation_net_config = getattr(transormation_net,block_name+'_config')
     block_num = transormation_net_config.block_num
     channel_in = transormation_net_config.channel_in[1] if block_num >1 else transormation_net_config.channel_in[0]
     channel_out = transormation_net_config.channel_out[1] if block_num > 1 else transormation_net_config.channel_out[0]
     transormation_net_config.block_num += 1
-    transormation_net_config.channel_in.insert(position, channel_in)
-    transormation_net_config.channel_out.insert(position, channel_out)
+    transormation_net_config.channel_in.append(channel_in)
+    transormation_net_config.channel_out.append(channel_out)
     setattr(transormation_net,block_name,basenet_block)
     return transormation_net
-def delete_regular_block(block_name,position,basenet):
+def delete_regular_block(block_name,basenet):
     assert hasattr(basenet, block_name), "Must contain the block"
     transormation_net = copy.deepcopy(basenet)
     config = getattr(basenet, block_name + '_config')
-    assert position < config.block_num
+    #assert position < config.block_num
     basenet_block = getattr(basenet, block_name)
     transormation_block_list = nn.ModuleList()
+    position = len(basenet_block) -1
     for index,block in enumerate(basenet_block):
         if index == position:
             pass
@@ -91,7 +93,6 @@ def add_connection(basenet, start_node, end_node,
                     operation_list.append(nn.AvgPool2d(3,stride = 2,padding = 1))
                 elif spatial_operation == '3x3_conv':
                     #在进行3x3卷积的时候，默认进行输入输出一样的变化
-
                     operation_list.append(nn.Conv2d(start_node_size[1], start_node_size[1],
                                                     (3, 3), stride=2, padding=(1, 1),
                                                     bias=False, dilation=1))
@@ -110,7 +111,7 @@ def add_connection(basenet, start_node, end_node,
         transformed_size = end_size
 
     if connection_mode == 'add':
-        assert transformed_size == end_node_size[1]
+        assert transformed_size == end_node_size[1],"in add mode, size should be same!"
     else:
         transformed_size = end_node_size[1] + transformed_size
         transormation_net.output_channel[end_node_index][1] = transformed_size
@@ -157,7 +158,7 @@ def add_connection(basenet, start_node, end_node,
     pass
 def delete_decoder(basenet):
     assert basenet.decoder == True, "Decoder already be deleted"
-    transormation_net = Basenet.Basenet(basenet.num_classes,False)
+    transormation_net = model.Model(basenet.num_classes,False)
 
     for i in [1,2,3]:
         setattr(transormation_net,'downsample_%d_config'%i,copy.deepcopy(getattr(basenet,'downsample_%d_config'%i)))
@@ -178,26 +179,23 @@ if __name__ == '__main__':
     # print netParams(basenet)
     # print output.size()
     #connection
-    summary(basenet,(3,512,1024),device="cpu")
-    net = add_connection(basenet, 'input', 'downsample_1',
-                   connection_mode='concat',
-                   spatial_operation='max',
-                   channel_operation=None,
-                   channel_dim=None)
+    #summary(basenet,(3,512,1024),device="cpu")
+    # net = add_connection(basenet, 'input', 'downsample_1',
+    #                connection_mode='concat',
+    #                spatial_operation='max',
+    #                channel_operation=None,
+    #                channel_dim=None)
+    # output = net.forward(input)
+    # print netParams(basenet)
+    # print output.size()
+    # summary(net, (3, 512, 1024), device="cpu")
+    net = delete_regular_block('regular_2',basenet)
     output = net.forward(input)
-    print netParams(basenet)
-    print output.size()
     summary(net, (3, 512, 1024), device="cpu")
-    net = delete_regular_block('regular_2',1,basenet)
+    net = add_regular_block('regular_2',net)
     output = net.forward(input)
-    print netParams(net)
-    print output.size()
-    net = add_regular_block('regular_2',1,net)
-    output = net.forward(input)
-    print netParams(net)
-    print output.size()
+    summary(net, (3, 512, 1024), device="cpu")
     net = delete_decoder(net)
     output = net.forward(input)
+    summary(net, (3, 512, 1024), device="cpu")
     #torch.save(net, 'test2.pth')
-    print netParams(net)
-    print output.size()
