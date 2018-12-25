@@ -174,7 +174,7 @@ if __name__ == '__main__':
     from torchsummary import summary
     input = Variable(torch.randn(1, 3, 512, 1024))
     basenet = model.Model(num_classes=20)
-    # output = basenet.forward(input)
+    # output = basenet.forward(input) test
     #torch.save(basenet,'test.pth')
     # print netParams(basenet)
     # print output.size()

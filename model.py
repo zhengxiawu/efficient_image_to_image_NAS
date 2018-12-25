@@ -9,6 +9,20 @@ from torch.autograd import Variable
 from config import *
 from operation_factory import *
 
+class CrossEntropyLoss2d(nn.Module):
+    '''
+    This file defines a cross entropy loss for 2D images
+    '''
+    def __init__(self, weight=None):
+        '''
+        :param weight: 1D weight vector to deal with the class-imbalance
+        '''
+        super(CrossEntropyLoss2d,self).__init__()
+
+        self.loss = nn.NLLLoss(weight)
+
+    def forward(self, outputs, targets):
+        return self.loss(F.log_softmax(outputs, 1), targets)
 
 class Model(nn.Module):
     def __init__(self, num_classes=20, decoder=True):
