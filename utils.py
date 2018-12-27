@@ -1,3 +1,4 @@
+
 def netParams(model):
     '''
     helper function to see total network parameters

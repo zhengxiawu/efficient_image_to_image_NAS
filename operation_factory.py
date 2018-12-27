@@ -34,6 +34,20 @@ class upCBR(nn.Module):
         output = self.BR(output)
         return output
 
+class CrossEntropyLoss2d(nn.Module):
+    '''
+    This file defines a cross entropy loss for 2D images
+    '''
+    def __init__(self, weight=None):
+        '''
+        :param weight: 1D weight vector to deal with the class-imbalance
+        '''
+        super(CrossEntropyLoss2d,self).__init__()
+
+        self.loss = nn.NLLLoss(weight)
+
+    def forward(self, outputs, targets):
+        return self.loss(F.log_softmax(outputs, 1), targets)
 
 class Basic_Layer(nn.Module):
     def __init__(self):
@@ -56,6 +70,12 @@ class Downsample_block(Basic_Layer):
         self.in_out_connection = in_out_connection
 
 #get function
+def get_basic_cbr(channel_in,channel_out,kernel_size,stride):
+    return CBR(channel_in,channel_out,kernel_size,stride)
+
+def get_basic_upbr(channel_in,channel_out,kernel_size,stride):
+    return upCBR(channel_in,channel_out,kernel_size,stride)
+
 def get_Downsample_block(downsample_block_config):
     return CBR(downsample_block_config.channel_in,downsample_block_config.channel_out,
                downsample_block_config.kernel_size,downsample_block_config.stride)

@@ -9,30 +9,20 @@ from torch.autograd import Variable
 from config import *
 from operation_factory import *
 
-class CrossEntropyLoss2d(nn.Module):
-    '''
-    This file defines a cross entropy loss for 2D images
-    '''
-    def __init__(self, weight=None):
-        '''
-        :param weight: 1D weight vector to deal with the class-imbalance
-        '''
-        super(CrossEntropyLoss2d,self).__init__()
 
-        self.loss = nn.NLLLoss(weight)
-
-    def forward(self, outputs, targets):
-        return self.loss(F.log_softmax(outputs, 1), targets)
 
 class Model(nn.Module):
-    def __init__(self, num_classes=20, decoder=True):
+    def __init__(self, num_classes=20, decoder=True, block_num_list = [0,5,8,2,2]):
         super(Model, self).__init__()
         self.num_classes = num_classes
         self.decoder = decoder
+        self.block_num_list = block_num_list
+        self.action_list = {'stage_1':[],
+                            'stage_2':[],
+                            'stage_3':[],}
         self.connection_information = {'start_end_node': [],
                                        'connection_mode': [],
-                                       'start_operation_list': [],
-                                       }
+                                       'start_operation_list': [],}
 
         self.output_name = ['input',
                             'downsample_1', 'regular_1',
@@ -54,7 +44,7 @@ class Model(nn.Module):
         self.downsample_1 = get_Downsample_block(self.downsample_1_config)  # /2
 
         # regular convolution
-        block_num = 0
+        block_num = self.block_num_list[0]
         in_channel = [16] * block_num
         out_channel = [16] * block_num
         self.regular_1_config = Regular_config(in_channel, out_channel, 3, 1, block_num)
@@ -65,7 +55,7 @@ class Model(nn.Module):
         self.downsample_2 = get_Downsample_block(self.downsample_2_config)
 
         # regular2
-        block_num = 5
+        block_num = self.block_num_list[1]
         in_channel = [64] * block_num
         out_channel = [64] * block_num
         self.regular_2_config = Regular_config(in_channel, out_channel, 3, 1, 5)

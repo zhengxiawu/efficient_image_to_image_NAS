@@ -19,26 +19,28 @@ def weights_init(model):
     return model
 def add_regular_block(block_name,basenet):
     assert hasattr(basenet,block_name), "Must contain the block"
-    transormation_net = copy.deepcopy(basenet)
+    transformation_net = copy.deepcopy(basenet)
     config = getattr(basenet,block_name+'_config')
     config.block_num = 1
     insert_block = get_Regular_block(config)
     basenet_block = getattr(basenet,block_name)
     basenet_block.append(insert_block[0])
     #basenet_block.insert(position,insert_block[0])
-    transormation_net_config = getattr(transormation_net,block_name+'_config')
-    block_num = transormation_net_config.block_num
-    channel_in = transormation_net_config.channel_in[1] if block_num >1 else transormation_net_config.channel_in[0]
-    channel_out = transormation_net_config.channel_out[1] if block_num > 1 else transormation_net_config.channel_out[0]
-    transormation_net_config.block_num += 1
-    transormation_net_config.channel_in.append(channel_in)
-    transormation_net_config.channel_out.append(channel_out)
-    setattr(transormation_net,block_name,basenet_block)
-    return transormation_net
+    transformation_net_config = getattr(transformation_net,block_name+'_config')
+    block_num = transformation_net_config.block_num
+    channel_in = transformation_net_config.channel_in[1] if block_num >1 else transformation_net_config.channel_in[0]
+    channel_out = transformation_net_config.channel_out[1] if block_num > 1 else transformation_net_config.channel_out[0]
+    transformation_net_config.block_num += 1
+    transformation_net_config.channel_in.append(channel_in)
+    transformation_net_config.channel_out.append(channel_out)
+    setattr(transformation_net,block_name,basenet_block)
+    transformation_net.action_list['stage_1'].append('add_'+block_name)
+    return transformation_net
 def delete_regular_block(block_name,basenet):
     assert hasattr(basenet, block_name), "Must contain the block"
-    transormation_net = copy.deepcopy(basenet)
+    transformation_net = copy.deepcopy(basenet)
     config = getattr(basenet, block_name + '_config')
+    assert config.block_num > 0,"The block number is 0!"
     #assert position < config.block_num
     basenet_block = getattr(basenet, block_name)
     transormation_block_list = nn.ModuleList()
@@ -49,14 +51,29 @@ def delete_regular_block(block_name,basenet):
         else:
             transormation_block_list.append(block)
     if len(transormation_block_list) == 0:
-        setattr(transormation_net, block_name, None)
+        setattr(transformation_net, block_name, None)
     else:
-        setattr(transormation_net, block_name, transormation_block_list)
-        transormation_net_config = getattr(transormation_net, block_name + '_config')
-        transormation_net_config.block_num -= 1
-        del transormation_net_config.channel_in[position]
-        del transormation_net_config.channel_out[position]
-    return transormation_net
+        setattr(transformation_net, block_name, transormation_block_list)
+        transformation_net_config = getattr(transformation_net, block_name + '_config')
+        transformation_net_config.block_num -= 1
+        del transformation_net_config.channel_in[position]
+        del transformation_net_config.channel_out[position]
+    transformation_net.action_list['stage_1'].append('delete_' + block_name)
+    return transformation_net
+
+def delete_decoder(basenet):
+    assert basenet.decoder == True, "Decoder already be deleted"
+    transformation_net = model.Model(basenet.num_classes,False)
+
+    for i in [1,2,3]:
+        setattr(transformation_net,'downsample_%d_config'%i,copy.deepcopy(getattr(basenet,'downsample_%d_config'%i)))
+        setattr(transformation_net, 'downsample_%d' % i, copy.deepcopy(getattr(basenet, 'downsample_%d'%i)))
+        setattr(transformation_net, 'regular_%d_config' % i, copy.deepcopy(getattr(basenet, 'regular_%d_config'%i)))
+        setattr(transformation_net, 'regular_%d' % i, copy.deepcopy(getattr(basenet, 'regular_%d'%i)))
+
+    transformation_net.action_list['stage_1'].append('deleteDecoder')
+    return transformation_net
+
 '''
 添加connection函数，添加不同stage 之间的connection
 basenet： 输入网络结构，为一个Basenet类
@@ -75,11 +92,11 @@ def add_connection(basenet, start_node, end_node,
                    channel_operation = None,
                    channel_dim = None):
     
-    transormation_net = copy.deepcopy(basenet)
-    start_node_index = transormation_net.output_name.index(start_node)
-    start_node_size = transormation_net.output_channel[start_node_index]
-    end_node_index = transormation_net.output_name.index(end_node)
-    end_node_size = transormation_net.output_channel[end_node_index]
+    transformation_net = copy.deepcopy(basenet)
+    start_node_index = transformation_net.output_name.index(start_node)
+    start_node_size = transformation_net.output_channel[start_node_index]
+    end_node_index = transformation_net.output_name.index(end_node)
+    end_node_size = transformation_net.output_channel[end_node_index]
 
     operation_list = nn.ModuleList()
     transformed_size = start_node_size[1]
@@ -111,19 +128,20 @@ def add_connection(basenet, start_node, end_node,
         transformed_size = end_size
 
     if connection_mode == 'add':
+        #transformed_size == end_node_size[1]
         assert transformed_size == end_node_size[1],"in add mode, size should be same!"
     else:
         transformed_size = end_node_size[1] + transformed_size
-        transormation_net.output_channel[end_node_index][1] = transformed_size
+        transformation_net.output_channel[end_node_index][1] = transformed_size
         #change the operation and weight in latter layer
         successor_layer_index = end_node_index + 1
-        successor_layer_name = transormation_net.output_name[successor_layer_index]
-        successor_layer = getattr(transormation_net,successor_layer_name)
+        successor_layer_name = transformation_net.output_name[successor_layer_index]
+        successor_layer = getattr(transformation_net,successor_layer_name)
         while successor_layer is None:
             successor_layer_index += 1
-            successor_layer_name = transormation_net.output_name[successor_layer_index]
-            successor_layer = getattr(transormation_net, successor_layer_name)
-        successor_layer_config = getattr(transormation_net,successor_layer_name+'_config')
+            successor_layer_name = transformation_net.output_name[successor_layer_index]
+            successor_layer = getattr(transformation_net, successor_layer_name)
+        successor_layer_config = getattr(transformation_net,successor_layer_name+'_config')
         if 'regular' in successor_layer_name:
             old_channel_in = successor_layer_config.channel_in[0]
             successor_layer_config.channel_in[0] = transformed_size
@@ -135,9 +153,9 @@ def add_connection(basenet, start_node, end_node,
             first_successor_layer_.conv = weights_init(first_successor_layer_.conv)
             first_successor_layer_.conv.weight.data[:,0:old_channel_in,:,:] = successor_layer[0].conv.weight.data
             successor_layer[0] = first_successor_layer_
-            setattr(transormation_net, successor_layer_name,successor_layer)
+            setattr(transformation_net, successor_layer_name,successor_layer)
         else:
-            successor_layer = getattr(transormation_net, successor_layer_name)
+            successor_layer = getattr(transformation_net, successor_layer_name)
             old_channel_in = successor_layer_config.channel_in
             successor_layer_config.channel_in = transformed_size
             channel_in = successor_layer_config.channel_in
@@ -148,25 +166,18 @@ def add_connection(basenet, start_node, end_node,
             first_successor_layer_.conv = weights_init(first_successor_layer_.conv)
             first_successor_layer_.conv.weight.data[:, 0:old_channel_in, :, :] = successor_layer.conv.weight.data
             successor_layer = first_successor_layer_
-            setattr(transormation_net, successor_layer_name, successor_layer)
+            setattr(transformation_net, successor_layer_name, successor_layer)
 
     operation_list = weights_init(operation_list)
-    transormation_net.connection_information['start_end_node'].append([start_node,end_node])
-    transormation_net.connection_information['connection_mode'].append(connection_mode)
-    transormation_net.connection_information['start_operation_list'].append(operation_list)
-    return transormation_net
-    pass
-def delete_decoder(basenet):
-    assert basenet.decoder == True, "Decoder already be deleted"
-    transormation_net = model.Model(basenet.num_classes,False)
+    transformation_net.connection_information['start_end_node'].append([start_node,end_node])
+    transformation_net.connection_information['connection_mode'].append(connection_mode)
+    transformation_net.connection_information['start_operation_list'].append(operation_list)
+    transformation_net.action_list['stage_2'].append('addConnection_%s_%s_%s_%s_%s'%
+                                                     (start_node, end_node, connection_mode,
+                                                      str(spatial_operation), str(channel_operation)))
+    return transformation_net
 
-    for i in [1,2,3]:
-        setattr(transormation_net,'downsample_%d_config'%i,copy.deepcopy(getattr(basenet,'downsample_%d_config'%i)))
-        setattr(transormation_net, 'downsample_%d' % i, copy.deepcopy(getattr(basenet, 'downsample_%d'%i)))
-        setattr(transormation_net, 'regular_%d_config' % i, copy.deepcopy(getattr(basenet, 'regular_%d_config'%i)))
-        setattr(transormation_net, 'regular_%d' % i, copy.deepcopy(getattr(basenet, 'regular_%d'%i)))
 
-    return transormation_net
 
 if __name__ == '__main__':
     import model
