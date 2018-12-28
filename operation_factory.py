@@ -91,19 +91,22 @@ class CrossEntropyLoss2d(nn.Module):
         return self.loss(F.log_softmax(outputs, 1), targets)
 
 class ConvBlock(nn.Module):
-    def __init__(self,channel_in,channel_out,param):
+    def __init__(self,channel_in,channel_out,kernel,stride,param):
         super(ConvBlock, self).__init__()
         self.channel_in = channel_in
         self.channel_out = channel_out
-        self.in_bottle = param['in_bottle'] #最开始默认为None,当为数字时进行1x1的卷积
-        self.out_bottle = param['out_bottle']
+        self.kernel = kernel
+        self.stride = stride
+        self.in_bottle = param['in_bottle'] if param['in_bottle'] is None else channel_in * param['in_bottle']
+        self.out_bottle = param['out_bottle'] if param['out_bottle'] is None else channel_in * param['out_bottle']
         self.in_out_connection = param['in_out_connection']
         assert self.in_out_connection in ['res','dense',None]
-        self.main_stream_in = channel_in if self.in_bottle is not None else self.in_bottle
-        self.main_stream_out = channel_out if self.main_stream_out is None else self.main_stream_out
-        self.main_stream = param['main_stream_fn'](self.main_stream_in,self.main_stream_out,
-                                                   param['main_stream'])
-        self.se_block = param['se_block']
+        self.main_stream_in = channel_in if self.in_bottle is None else self.in_bottle
+        self.main_stream_out = channel_out
+        self.main_stream = param['main_stream_fn'](self.main_stream_in,self.main_stream_out,self.kernel,self.stride,
+                                                   channel_split = param['channel_split'],spatial_split = param['spatial_split'],
+                                                   dilated = param['dilated'])
+        #self.se_block = param['se_block']
         if self.in_bottle is not None:
             self.in_bottle_conv = CB(self.channel_in, self.in_bottle,1)
         if self.out_bottle is not None:
@@ -116,13 +119,14 @@ class ConvBlock(nn.Module):
                 self.in_out_conv = None
         elif self.in_out_connection == 'dense':
             self.channel_out = self.channel_in + self.channel_out
-        if self.se_block:
-            self.se_block_layer = SELayer(self.channel_out)
+        # if self.se_block:
+        #     self.se_block_layer = SELayer(self.channel_out)
 
         self.out_tensor = {'input':None,
                                 'in_bottle': None,
                                 'main_stream': None,
                                 'out_bottle': None,
+                                'out_connection':None,
                                 'out_put': None,
                                 }
     def forward(self, x):
@@ -139,21 +143,35 @@ class ConvBlock(nn.Module):
         else:
             self.out_tensor['out_bottle'] = self.out_tensor['main_stream']
         pass
-        #是否进行se
-        if self.se_block:
-            self.out_tensor['out_put'] = self.se_block_layer(self.out_tensor['out_bottle'])
+        #connection
+        if self.in_out_connection == 'res':
+            if self.in_out_conv is not None:
+                self.out_tensor['out_connection'] = self.in_out_conv(self.out_tensor['out_bottle'])
+                self.out_tensor['out_connection'] = self.out_tensor['input']
+        elif self.in_out_connection == 'dense':
+            self.out_tensor['out_connection'] = torch.cat([self.out_tensor['input'],self.out_tensor['out_bottle']],dim=1)
         else:
-            self.out_tensor['out_put'] = self.out_tensor['out_bottle']
+            self.out_tensor['out_connection'] = self.out_tensor['out_bottle']
+        #是否进行se 12/28：删除se判断，se应该是加入到每一个stage后面，而不是网络结构
+        # if self.se_block:
+        #     self.out_tensor['out_put'] = self.se_block_layer(self.out_tensor['out_bottle'])
+        # else:
+        #     self.out_tensor['out_put'] = self.out_tensor['out_bottle']
         return self.out_tensor['out_put']
 
 class main_stream(nn.Module):
-    def __init__(self,channel_in,channel_out,param):
+    def __init__(self,channel_in,channel_out,kernel,stride,
+                 channel_split = 1, spatial_split = False, dilated = 1):
         super(main_stream, self).__init__()
         self.channel_in = channel_in
         self.channel_out = channel_out
-        self.channel_split = param['channel_split']
-        self.spatial_split = param['spatial_split']
-        self.dilated = param['dilated']
+        self.kernel = kernel
+        self.stride = stride
+        self.channel_split = channel_split
+        self.spatial_split = spatial_split
+        self.dilated = dilated
+        if type(self.dilated) is int:
+            self.dilated = [self.dilated]*self.channel_split
         assert len(self.dilated) == self.channel_split
         if self.channel_split == 1:
             self.channel_split_list = [self.channel_out]
@@ -168,9 +186,9 @@ class main_stream(nn.Module):
             split_channel_out = self.channel_split_list[i]
             if self.spatial_split:
                 setattr(self,'conv'+str(name_index),
-                        spatial_split_conv(split_channel_in,split_channel_out,kernel=3,dilated=self.dilated[i]))
+                        spatial_split_conv(split_channel_in,split_channel_out,kernel=kernel,dilated=self.dilated[i]))
             setattr(self,'conv'+str(name_index),
-                    C(split_channel_in, split_channel_out, kSize = 3, stride=1,dilated = self.dilated[i]))
+                    C(split_channel_in, split_channel_out, kSize = kernel, stride=self.stride,dilated = self.dilated[i]))
         self.tensors = [None]*len(self.channel_split_list)
         self.bn =nn.BatchNorm2d(channel_out, eps=1e-03)
     def forward(self, x):
@@ -188,13 +206,13 @@ class main_stream(nn.Module):
         return output_tensor
 
 class spatial_split_conv(nn.Module):
-    def __init__(self, chann, chann_out, kernel = 3,dilated = 1):
+    def __init__(self, chann, chann_out, kernel = 3,stride = 1,dilated = 1):
         super(spatial_split_conv, self).__init__()
         padding = int((kernel - 1) / 2) * dilated
-        self.conv3x1 = nn.Conv2d(chann, chann, (kernel, 1), stride=1, padding=(1 * padding, 0), bias=True,
+        self.conv3x1 = nn.Conv2d(chann, chann, (kernel, 1), stride=stride, padding=(1 * padding, 0), bias=True,
                                    dilation=(dilated, 1))
 
-        self.conv1x3 = nn.Conv2d(chann, chann_out, (1, kernel), stride=1, padding=(0, 1 * padding), bias=True,
+        self.conv1x3 = nn.Conv2d(chann, chann_out, (1, kernel), stride=stride, padding=(0, 1 * padding), bias=True,
                                    dilation=(1, dilated))
 
         self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
@@ -231,6 +249,23 @@ class Downsample_block(Basic_Layer):
         self.in_out_connection = in_out_connection
 
 #get function
+def get_down_sample_conv_block(structure_param,block_param):
+    return ConvBlock(structure_param[0],structure_param[1],structure_param[2],structure_param[3],
+                     block_param)
+def get_regular_conv_block(structure_param,block_param):
+    module_list = nn.ModuleList()
+    if type(structure_param[0]) is int:
+        return None
+    else:
+        assert len(structure_param) == len(block_param)
+        for index,structure in enumerate(structure_param):
+            module_list.append(ConvBlock(structure[0],structure[1],structure[2],structure[3],
+                     block_param[index]))
+        return ConvBlock
+
+def get_upbr(structure_param,block_param):
+    return upCBR(structure_param[0], structure_param[1], structure_param[2], structure_param[3])
+
 def get_basic_cbr(structure):
     return CBR(structure['channel_in'],structure['channel_out'],structure['kernel_size'],structure['stride'])
 

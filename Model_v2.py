@@ -3,15 +3,15 @@ from config import OUT_TENSOR_NAME,LAYER_NAME
 
 
 class Model(nn.Module):
-    def __init__(self,num_classes, decoder, model_fn, structure_param):
+    def __init__(self,num_classes, decoder, model_fn, structure_param,block_param):
         super(Model, self).__init__()
         self.num_classes = num_classes
         self.decoder = decoder
         self.model_fn = model_fn
         self.structure_param = structure_param
-        self.structure_param['up_sample_5']['channel_out'] = 2* num_classes
-        self.structure_param['up_sample_6']['channel_out'] = num_classes
-        self.structure_param['up_sample_6']['channel_in'] = 2* num_classes
+        self.structure_param['up_sample_5'][1] = 2* num_classes
+        self.structure_param['up_sample_6'][1] = num_classes
+        self.structure_param['up_sample_6'][0] = 2* num_classes
 
         self.connection_information = {'start_end_node': [],
                                        'connection_mode': [],
@@ -21,7 +21,7 @@ class Model(nn.Module):
         self.out_tensor_name = OUT_TENSOR_NAME
         self.out_tensor_dict = dict(zip(self.out_tensor_name,[None]*len(self.out_tensor_name)))
         for layer in self.layer_name:
-            setattr(self,layer,model_fn[layer[0:-2]](structure_param[layer]))
+            setattr(self,layer,model_fn[layer[0:-2]](structure_param[layer],block_param[layer[0:-2]]))
 
         if not self.decoder:
             self.project_layer = nn.Conv2d(128, num_classes, kernel_size=1)
@@ -50,7 +50,7 @@ class Model(nn.Module):
     def weights_init(self):
         for idx, m in enumerate(self.modules()):
             classname = m.__class__.__name__
-            if classname.find('Conv') != -1:
+            if classname.find('Conv') != -1 and not classname == 'ConvBlock':
                 m.weight.data.normal_(0.0, 0.02)
             elif classname.find('BatchNorm') != -1:
                 m.weight.data.normal_(1.0, 0.02)
@@ -79,11 +79,23 @@ class Model(nn.Module):
         pass
 
 if __name__ == '__main__':
-    from config import DEFAULT_STRUCTURE_PARAM,DEFAULT_MODEL_FN
+    from config import DEFAULT_STRUCTURE_PARAM,DEFAULT_MODEL_FN,DEFAULT_BLOCK_PARAM
 
+    structure_test = {'down_sample_1': [3, 16, 3, 2],
+                               'regular_1': [[16, 16, 3, 1]],
+                               'down_sample_2': [16, 64, 3, 2],
+                               'regular_2': [[64, 64, 3, 1]],
+                               'down_sample_3': [64, 128, 3, 2],
+                               'regular_3': [[128, 128, 3, 1]],
+                               'up_sample_4': [128, 64, 3, 2],
+                               'regular_4': [[64, 64, 3, 1]],
+                               'up_sample_5': [64, 32, 3, 2],
+                               'regular_5': [[32, 32, 3, 1]],
+                               'up_sample_6': [32, 16, 3, 2],
+                               }
     num_classes = 20
     decoder = True
-    model_test = Model(num_classes,decoder,DEFAULT_MODEL_FN,DEFAULT_STRUCTURE_PARAM)
+    model_test = Model(num_classes,decoder,DEFAULT_MODEL_FN,structure_test,DEFAULT_BLOCK_PARAM)
     input = Variable(torch.randn(1, 3, 512, 1024))
     output = model_test(input)
     print(output.size())
