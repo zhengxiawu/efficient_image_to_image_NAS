@@ -191,10 +191,10 @@ if __name__ == '__main__':
     #                connection_mode='concat',
     #                spatial_operation='max',
     #                channel_operation=None,
-    #                channel_dim=None)
+    #
     # output = net.forward(input)
-    # print netParams(basenet)
-    # print output.size()
+    # print netParams(
+    # print output.size(
     # summary(net, (3, 512, 1024), device="cpu")
     net = delete_regular_block('regular_2',basenet)
     output = net.forward(input)

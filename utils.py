@@ -6,6 +6,7 @@ def netParams(model):
     :return: total network parameters
     '''
     total_paramters = 0
+    test = model.parameters()
     for parameter in model.parameters():
         i = len(parameter.size())
         p = 1
@@ -18,7 +19,7 @@ def netParams(model):
 def weights_init(model):
     for idx, m in enumerate(model.modules()):
         classname = m.__class__.__name__
-        if classname.find('Conv') != -1:
+        if classname.find('Conv') != -1 and not classname == 'ConvBlock':
             m.weight.data.normal_(0.0, 0.02)
         elif classname.find('BatchNorm') != -1:
             m.weight.data.normal_(1.0, 0.02)

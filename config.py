@@ -18,10 +18,10 @@ OUT_TENSOR_NAME = ['input',
                     'up_sample_6']
 LAYER_NAME = OUT_TENSOR_NAME[1:]
 DEFAULT_DOWN_SAMPLE_PARAM = {'in_bottle':None,'out_bottle':None,'in_out_connection':None,
-                            'channel_split':1,'spatial_split':False,'dilated':1,'se_block':False,
+                            'channel_split':1,'spatial_split':False,'dilated':1,
                              'main_stream_fn':main_stream,}
 DEFAULT_REGULAR_PARAM = {'in_bottle':None,'out_bottle':None,'in_out_connection':None,
-                            'channel_split':2,'spatial_split':True,'dilated':[1,2],'se_block':True,
+                            'channel_split':1,'spatial_split':False,'dilated':1,
                              'main_stream_fn':main_stream,}
 DEFAULT_UP_SAMPLE_PARAM = {None}
 DEFAULT_BLOCK_PARAM = {'down_sample':DEFAULT_DOWN_SAMPLE_PARAM,
@@ -29,7 +29,7 @@ DEFAULT_BLOCK_PARAM = {'down_sample':DEFAULT_DOWN_SAMPLE_PARAM,
                        'up_sample':DEFAULT_UP_SAMPLE_PARAM
                        }
 DEFAULT_STRUCTURE_PARAM = {'down_sample_1': [3,16,3,2],
-                           'regular_1': [16,16,3,1,1],
+                           'regular_1': [16,16,3,1,0],
                            'down_sample_2': [16,64,3,2],
                            'regular_2': [64,64,3,1,0],
                            'down_sample_3': [64,128,3,2],

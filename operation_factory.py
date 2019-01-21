@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from utils import weights_init
 
 class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
@@ -108,7 +109,7 @@ class ConvBlock(nn.Module):
                                                    dilated = param['dilated'])
         #self.se_block = param['se_block']
         if self.in_bottle is not None:
-            self.in_bottle_conv = CB(self.channel_in, self.in_bottle,1)
+            self.in_bottle_conv = CB(self.channel_in, int(self.in_bottle*self.channel_in),1)
         if self.out_bottle is not None:
             self.out_bottle_conv = CB(self.main_stream_out, self.out_bottle,1)
             self.channel_out = self.out_bottle
@@ -132,7 +133,7 @@ class ConvBlock(nn.Module):
     def forward(self, x):
         self.out_tensor['input'] = x
         if self.in_bottle is not None:
-            self.out_tensor['in_bottle'] = self.in_bottle_conv(self.out_tensor['in_bottle'])
+            self.out_tensor['in_bottle'] = self.in_bottle_conv(self.out_tensor['input'])
         else:
             self.out_tensor['in_bottle'] = self.out_tensor['input']
         #main stream 部分
@@ -157,6 +158,7 @@ class ConvBlock(nn.Module):
         #     self.out_tensor['out_put'] = self.se_block_layer(self.out_tensor['out_bottle'])
         # else:
         #     self.out_tensor['out_put'] = self.out_tensor['out_bottle']
+        self.out_tensor['out_put'] = self.out_tensor['out_connection']
         return self.out_tensor['out_put']
 
 class main_stream(nn.Module):
@@ -178,6 +180,7 @@ class main_stream(nn.Module):
         else:
             n = int(channel_out / self.channel_split)
             n1 = channel_out - self.channel_split * n
+            n1 = n1 if not n1 == 0 else n
             self.channel_split_list = [n1]+[n]*(self.channel_split - 1)
 
         for i in range(len(self.channel_split_list)):
@@ -186,8 +189,9 @@ class main_stream(nn.Module):
             split_channel_out = self.channel_split_list[i]
             if self.spatial_split:
                 setattr(self,'conv'+str(name_index),
-                        spatial_split_conv(split_channel_in,split_channel_out,kernel=kernel,dilated=self.dilated[i]))
-            setattr(self,'conv'+str(name_index),
+                        spatial_split_conv(split_channel_in,split_channel_out,kernel=kernel,stride= self.stride, dilated=self.dilated[i]))
+            else:
+                setattr(self,'conv'+str(name_index),
                     C(split_channel_in, split_channel_out, kSize = kernel, stride=self.stride,dilated = self.dilated[i]))
         self.tensors = [None]*len(self.channel_split_list)
         self.bn =nn.BatchNorm2d(channel_out, eps=1e-03)
@@ -209,24 +213,28 @@ class spatial_split_conv(nn.Module):
     def __init__(self, chann, chann_out, kernel = 3,stride = 1,dilated = 1):
         super(spatial_split_conv, self).__init__()
         padding = int((kernel - 1) / 2) * dilated
+        self.chann = chann
+        self.chann_out = chann_out
         self.conv3x1 = nn.Conv2d(chann, chann, (kernel, 1), stride=stride, padding=(1 * padding, 0), bias=True,
                                    dilation=(dilated, 1))
 
         self.conv1x3 = nn.Conv2d(chann, chann_out, (1, kernel), stride=stride, padding=(0, 1 * padding), bias=True,
                                    dilation=(1, dilated))
 
-        self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
+        self.bn2 = nn.BatchNorm2d(chann_out, eps=1e-03)
 
 
     def forward(self, input):
 
-        output = self.conv3x1_2(input)
+        output = self.conv3x1(input)
         output = F.relu(output)
-        output = self.conv1x3_2(output)
+        output = self.conv1x3(output)
         output = self.bn2(output)
 
-
-        return F.relu(output + input)
+        if self.chann_out == self.chann:
+            return F.relu(output + input)
+        else:
+            return output
 
 class Basic_Layer(nn.Module):
     def __init__(self):
@@ -250,21 +258,21 @@ class Downsample_block(Basic_Layer):
 
 #get function
 def get_down_sample_conv_block(structure_param,block_param):
-    return ConvBlock(structure_param[0],structure_param[1],structure_param[2],structure_param[3],
-                     block_param)
+    return weights_init(ConvBlock(structure_param[0],structure_param[1],structure_param[2],structure_param[3],
+                     block_param))
 def get_regular_conv_block(structure_param,block_param):
     module_list = nn.ModuleList()
     if type(structure_param[0]) is int:
         return None
     else:
-        assert len(structure_param) == len(block_param)
+        #assert len(structure_param) == len(block_param)
         for index,structure in enumerate(structure_param):
             module_list.append(ConvBlock(structure[0],structure[1],structure[2],structure[3],
-                     block_param[index]))
-        return ConvBlock
+                     block_param))
+        return weights_init(module_list)
 
 def get_upbr(structure_param,block_param):
-    return upCBR(structure_param[0], structure_param[1], structure_param[2], structure_param[3])
+    return weights_init(upCBR(structure_param[0], structure_param[1], structure_param[2], structure_param[3]))
 
 def get_basic_cbr(structure):
     return CBR(structure['channel_in'],structure['channel_out'],structure['kernel_size'],structure['stride'])
